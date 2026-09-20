@@ -18,7 +18,7 @@ jobs:
       - name: Reconstruct source archive
         shell: bash
         run: |
-          cat .chatgpt-autofish/autofish.part1               .chatgpt-autofish/autofish.part2               .chatgpt-autofish/autofish.part3               .chatgpt-autofish/autofish.part4               .chatgpt-autofish/autofish.part5 > /tmp/autofish.b64
+          cat .chatgpt-autofish/autofish.part1               .chatgpt-autofish/autofish.part2               .chatgpt-autofish/autofish.part3               .chatgpt-autofish/autofish.part4a               .chatgpt-autofish/autofish.part4b               .chatgpt-autofish/autofish.part5 > /tmp/autofish.b64
           base64 -d /tmp/autofish.b64 > /tmp/autofish-ci.tar.gz
           echo "2a17d6f48f078ee965e35d533f2d91bf6bc4fddfd5004c05751bf5fd1376c8b4  /tmp/autofish-ci.tar.gz" | sha256sum -c -
           tar -xzf /tmp/autofish-ci.tar.gz -C /tmp
