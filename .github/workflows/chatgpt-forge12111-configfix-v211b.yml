@@ -1,0 +1,101 @@
+name: NightWolf Forge 1.21.11 config crash fix v2.1.1
+
+on:
+  push:
+    branches:
+      - chatgpt-forge12111-configfix-v211b
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore proven v2.1.0 source
+        shell: bash
+        run: |
+          base64 -d .chatgpt-forge12111/source.b64 > /tmp/NightWolf-Forge12111-FixedMods.tar.gz
+          echo "8325f8616e0334f6f94ac329bc2b5cbd560f95c5eab28fa952a68a8601e29d8f  /tmp/NightWolf-Forge12111-FixedMods.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/NightWolf-Forge12111-FixedMods.tar.gz -C /tmp
+
+      - name: Apply config double-blur fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=/tmp/NightWolf-Forge12111-FixedMods
+
+          sed -i '/this\.renderBackground(g, mouseX, mouseY, partialTick);/d' "$ROOT/autofish/src/main/java/de/nightwolf/autofish/AutoFishConfigScreen.java"
+          sed -i '/this\.renderBackground(g,mouseX,mouseY,partialTick);/d' "$ROOT/secondchat/src/main/java/de/magicwolf/secondchat/SecondChatConfigScreen.java"
+
+          sed -i 's/mod_version=2.1.0/mod_version=2.1.1/' "$ROOT/gradle.properties"
+          sed -i 's/version="2.1.0-forge-1.21.11"/version="2.1.1-forge-1.21.11"/' "$ROOT/autofish/src/main/resources/META-INF/mods.toml"
+          sed -i 's/version="2.1.0-forge-1.21.11"/version="2.1.1-forge-1.21.11"/' "$ROOT/secondchat/src/main/resources/META-INF/mods.toml"
+
+          cat > "$ROOT/autofish/src/main/resources/pack.mcmeta" <<'EOF'
+          {
+            "pack": {
+              "pack_format": 34,
+              "description": "NightWolf AutoFish resources for Minecraft 1.21.11"
+            }
+          }
+          EOF
+
+          cat > "$ROOT/secondchat/src/main/resources/pack.mcmeta" <<'EOF'
+          {
+            "pack": {
+              "pack_format": 34,
+              "description": "MagicWolf GG SecondChat resources for Minecraft 1.21.11"
+            }
+          }
+          EOF
+
+          ! grep -q 'this.renderBackground' "$ROOT/autofish/src/main/java/de/nightwolf/autofish/AutoFishConfigScreen.java"
+          ! grep -q 'this.renderBackground' "$ROOT/secondchat/src/main/java/de/magicwolf/secondchat/SecondChatConfigScreen.java"
+          grep -q 'mod_version=2.1.1' "$ROOT/gradle.properties"
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: corretto
+          java-version: '21'
+
+      - name: Set up Gradle 9.5.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.1'
+
+      - name: Build fixed mods
+        shell: bash
+        working-directory: /tmp/NightWolf-Forge12111-FixedMods
+        run: |
+          gradle :autofish:clean :autofish:build :secondchat:clean :secondchat:build --no-daemon --stacktrace
+
+      - name: Collect and verify
+        shell: bash
+        working-directory: /tmp/NightWolf-Forge12111-FixedMods
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/release
+          AF=$(find autofish/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n 1)
+          SC=$(find secondchat/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n 1)
+
+          cp "$AF" /tmp/release/NightWolf-AutoFish-LabyMod4-Forge-1.21.11-v2.1.1-CONFIG-CRASH-FIX.jar
+          cp "$SC" /tmp/release/MagicWolf-GG-SecondChat-LabyMod4-Forge-1.21.11-v2.1.1-CONFIG-CRASH-FIX.jar
+
+          for jar in /tmp/release/*.jar; do
+            unzip -t "$jar" | tail -n 2
+            unzip -p "$jar" META-INF/mods.toml | grep -E 'modId=|version=|1.21.11'
+            unzip -p "$jar" pack.mcmeta
+            sha256sum "$jar"
+          done
+
+      - name: Upload fixed jars
+        uses: actions/upload-artifact@v4
+        with:
+          name: NightWolf-LabyMod4-Forge-1.21.11-v2.1.1-CONFIG-CRASH-FIX
+          path: /tmp/release/*.jar
+          if-no-files-found: error
