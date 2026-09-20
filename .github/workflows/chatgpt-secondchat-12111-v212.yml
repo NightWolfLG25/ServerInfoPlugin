@@ -1,0 +1,301 @@
+name: MagicWolf SecondChat Forge 1.21.11 v2.1.2 capture fix
+
+on:
+  push:
+    branches:
+      - chatgpt-secondchat-12111-v212
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore proven source
+        shell: bash
+        run: |
+          base64 -d .chatgpt-forge12111/source.b64 > /tmp/NightWolf-Forge12111-FixedMods.tar.gz
+          echo "8325f8616e0334f6f94ac329bc2b5cbd560f95c5eab28fa952a68a8601e29d8f  /tmp/NightWolf-Forge12111-FixedMods.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/NightWolf-Forge12111-FixedMods.tar.gz -C /tmp
+
+      - name: Apply SecondChat v2.1.2 capture fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=/tmp/NightWolf-Forge12111-FixedMods
+          STORE="$ROOT/secondchat/src/main/java/de/magicwolf/secondchat/SecondChatStore.java"
+          MOD="$ROOT/secondchat/src/main/java/de/magicwolf/secondchat/SecondChatMod.java"
+          SCREEN="$ROOT/secondchat/src/main/java/de/magicwolf/secondchat/SecondChatConfigScreen.java"
+
+          cat > "$STORE" <<'EOF'
+          package de.magicwolf.secondchat;
+
+          import java.time.LocalTime;
+          import java.time.format.DateTimeFormatter;
+          import java.util.ArrayDeque;
+          import java.util.ArrayList;
+          import java.util.Deque;
+          import java.util.List;
+          import java.util.Locale;
+
+          public final class SecondChatStore {
+              private static final Deque<Entry> MESSAGES = new ArrayDeque<>();
+              private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
+              private static String lastRaw = "";
+              private static long lastAt = 0L;
+
+              private SecondChatStore() {}
+
+              public static void accept(String raw) {
+                  if (raw == null || raw.isBlank()) return;
+
+                  SecondChatConfig cfg = SecondChatMod.CONFIG;
+                  String clean = strip(raw).trim();
+                  if (clean.isEmpty()) return;
+
+                  Type type = classify(clean, cfg);
+                  if (type == null) return;
+
+                  long now = System.currentTimeMillis();
+                  synchronized (MESSAGES) {
+                      if (clean.equals(lastRaw) && now - lastAt < 650L) return;
+                      lastRaw = clean;
+                      lastAt = now;
+
+                      MESSAGES.addLast(new Entry(LocalTime.now().format(TIME), clean, type));
+                      while (MESSAGES.size() > Math.max(20, cfg.maxMessages)) {
+                          MESSAGES.removeFirst();
+                      }
+                  }
+              }
+
+              public static List<Entry> snapshot() {
+                  synchronized (MESSAGES) {
+                      return new ArrayList<>(MESSAGES);
+                  }
+              }
+
+              public static void clear() {
+                  synchronized (MESSAGES) {
+                      MESSAGES.clear();
+                  }
+              }
+
+              private static Type classify(String text, SecondChatConfig cfg) {
+                  String lower = text.toLowerCase(Locale.ROOT);
+
+                  if (cfg.captureMoney) {
+                      boolean currency = lower.contains("$") || lower.contains("€");
+                      if (currency) {
+                          if ((lower.contains("du hast") && lower.contains("gegeben"))
+                                  || lower.contains("-$")
+                                  || lower.contains("- $")
+                                  || lower.contains("bezahlt")
+                                  || lower.contains("abgebucht")
+                                  || lower.contains("ausgegeben")) {
+                              return Type.MONEY_OUT;
+                          }
+
+                          if ((lower.contains("hat dir") && lower.contains("gegeben"))
+                                  || lower.contains("+$")
+                                  || lower.contains("+ $")
+                                  || lower.contains("erhalten")
+                                  || lower.contains("bekommen")
+                                  || lower.contains("gutgeschrieben")
+                                  || lower.contains("eingezahlt")) {
+                              return Type.MONEY_IN;
+                          }
+                      }
+                  }
+
+                  if (cfg.capturePlotChat) {
+                      if (containsAny(lower, cfg.plotTokens())
+                              || lower.contains("[plot-chat]")
+                              || lower.contains("[plotchat]")
+                              || lower.contains("[plot chat]")
+                              || lower.contains("[pchat]")
+                              || lower.contains("plot-chat")
+                              || lower.contains("plotchat")
+                              || lower.contains("plot chat")
+                              || lower.contains("pchat")
+                              || (lower.contains("plot") && lower.contains("chat"))) {
+                          return Type.PLOT;
+                      }
+                  }
+
+                  if (cfg.captureMsg) {
+                      boolean privateWords = containsAny(lower, cfg.msgTokens())
+                              || lower.contains("flüstert dir")
+                              || lower.contains("fluestert dir")
+                              || lower.contains("flüstere zu")
+                              || lower.contains("fluestere zu")
+                              || lower.contains("schreibt dir")
+                              || lower.contains("private nachricht")
+                              || lower.contains("privatnachricht");
+
+                      boolean arrow = lower.contains("->")
+                              || lower.contains("→")
+                              || lower.contains("➜")
+                              || lower.contains("»")
+                              || lower.contains("⇢");
+
+                      boolean privateDirection = lower.contains(" mir")
+                              || lower.contains("mir]")
+                              || lower.contains(" dir")
+                              || lower.contains("dir]")
+                              || lower.startsWith("[mir")
+                              || lower.startsWith("[dir");
+
+                      if (privateWords || (arrow && privateDirection)) {
+                          return Type.MSG;
+                      }
+                  }
+
+                  return null;
+              }
+
+              private static boolean containsAny(String text, List<String> tokens) {
+                  for (String token : tokens) {
+                      if (token != null) {
+                          String normalized = strip(token).trim().toLowerCase(Locale.ROOT);
+                          if (!normalized.isEmpty() && text.contains(normalized)) return true;
+                      }
+                  }
+                  return false;
+              }
+
+              private static String strip(String input) {
+                  StringBuilder out = new StringBuilder(input.length());
+                  boolean skipFormatCode = false;
+
+                  for (int i = 0; i < input.length(); i++) {
+                      char c = input.charAt(i);
+                      if (skipFormatCode) {
+                          skipFormatCode = false;
+                          continue;
+                      }
+                      if (c == '§') {
+                          skipFormatCode = true;
+                          continue;
+                      }
+                      if (c == '\u00A0') c = ' ';
+                      if (c == '\u200B' || c == '\u200C' || c == '\u200D' || c == '\uFEFF') continue;
+                      out.append(c);
+                  }
+
+                  return out.toString().replaceAll("\\s+", " ");
+              }
+
+              public enum Type {
+                  MSG,
+                  PLOT,
+                  MONEY_IN,
+                  MONEY_OUT
+              }
+
+              public record Entry(String time, String text, Type type) {}
+          }
+          EOF
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path("/tmp/NightWolf-Forge12111-FixedMods/secondchat/src/main/java/de/magicwolf/secondchat/SecondChatMod.java")
+          s = p.read_text(encoding="utf-8")
+          new_method = r'''private static boolean serverAllowed() {
+              if (!CONFIG.onlyGrieferGames) return true;
+
+              Minecraft mc = Minecraft.getInstance();
+              var data = mc.getCurrentServer();
+
+              // LabyMod/Forge can transiently expose no ServerData while already connected.
+              // Do not drop all chat in that case.
+              if (data == null || data.ip == null || data.ip.isBlank()) return true;
+
+              String ip = data.ip.toLowerCase(java.util.Locale.ROOT);
+              return ip.contains("griefergames")
+                      || ip.contains("griefergames.net")
+                      || ip.contains("griefergames.de");
+          }
+
+          private static void renderOverlay'''
+          s2, n = re.subn(
+              r'private static boolean serverAllowed\(\) \{.*?\n\s*\}\n\n\s*private static void renderOverlay',
+              new_method,
+              s,
+              count=1,
+              flags=re.S
+          )
+          if n != 1:
+              raise SystemExit("serverAllowed patch did not match exactly once")
+          p.write_text(s2, encoding="utf-8")
+          PY
+
+          # Keep the 1.21.11 config-screen crash fix.
+          sed -i '/this\.renderBackground(g,mouseX,mouseY,partialTick);/d' "$SCREEN"
+          sed -i '/this\.renderBackground(g, mouseX, mouseY, partialTick);/d' "$SCREEN"
+
+          # Bump SecondChat to v2.1.2.
+          sed -i 's/mod_version=2.1.0/mod_version=2.1.2/' "$ROOT/gradle.properties"
+          find "$ROOT/secondchat" -type f \( -name '*.java' -o -name '*.toml' -o -name '*.properties' \) -print0 | xargs -0 sed -i 's/2\.1\.0/2.1.2/g'
+
+          cat > "$ROOT/secondchat/src/main/resources/pack.mcmeta" <<'EOF'
+          {
+            "pack": {
+              "pack_format": 34,
+              "description": "MagicWolf GG SecondChat resources for Minecraft 1.21.11"
+            }
+          }
+          EOF
+
+          # Sanity checks on the exact bugs.
+          grep -q 'replaceAll("\\\\s+", " ")' "$STORE"
+          grep -q 'griefergames.de' "$MOD"
+          grep -q 'return true;' "$MOD"
+          ! grep -q 'this.renderBackground' "$SCREEN"
+          grep -R "2.1.2" "$ROOT/secondchat/src/main" >/dev/null
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: corretto
+          java-version: '21'
+
+      - name: Set up Gradle 9.5.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.1'
+
+      - name: Build SecondChat
+        shell: bash
+        working-directory: /tmp/NightWolf-Forge12111-FixedMods
+        run: |
+          gradle :secondchat:clean :secondchat:build --no-daemon --stacktrace
+
+      - name: Verify release jar
+        shell: bash
+        working-directory: /tmp/NightWolf-Forge12111-FixedMods
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/release
+          SC=$(find secondchat/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n 1)
+          OUT=/tmp/release/MagicWolf-GG-SecondChat-LabyMod4-Forge-1.21.11-v2.1.2-MSG-PLOT-MONEY-FIX.jar
+          cp "$SC" "$OUT"
+
+          unzip -t "$OUT" | tail -n 2
+          unzip -p "$OUT" META-INF/mods.toml | grep -E 'modId=|version=|1.21.11'
+          javap -classpath "$OUT" -v -p de.magicwolf.secondchat.SecondChatStore | grep -A4 -B2 'Utf8.*\\\\s+'
+          javap -classpath "$OUT" -c -p de.magicwolf.secondchat.SecondChatMod | grep -A45 'serverAllowed'
+          sha256sum "$OUT"
+
+      - name: Upload fixed SecondChat
+        uses: actions/upload-artifact@v4
+        with:
+          name: MagicWolf-GG-SecondChat-LabyMod4-Forge-1.21.11-v2.1.2-MSG-PLOT-MONEY-FIX
+          path: /tmp/release/*.jar
+          if-no-files-found: error
