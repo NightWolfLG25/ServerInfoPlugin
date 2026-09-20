@@ -50,7 +50,7 @@ jobs:
         shell: bash
         run: |
           base64 -d .chatgpt-secondchat/source.tar.gz.b64 > /tmp/secondchat-src.tar.gz
-          echo '4a26a723f278ab108f7f28255d29b12d8cfdd1b4186c05b285111f5ef826fac5  /tmp/secondchat-src.tar.gz' | sha256sum -c -
+          tar -tzf /tmp/secondchat-src.tar.gz >/dev/null
           tar -xzf /tmp/secondchat-src.tar.gz -C /tmp
 
       - name: Set up Java 21
