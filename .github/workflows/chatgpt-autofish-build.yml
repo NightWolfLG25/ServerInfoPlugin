@@ -11,7 +11,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
 
@@ -88,14 +88,40 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.7.1'
+          cache-read-only: false
 
       - name: Build all configured 1.21.x versions
         working-directory: /tmp/NightWolfAutoFish-LabyMod4-1.21x
-        run: gradle build --full-stacktrace --no-daemon
+        shell: bash
+        run: |
+          set -o pipefail
+          for attempt in 1 2 3 4; do
+            echo "=== Gradle build attempt $attempt/4 ==="
+            if gradle build --full-stacktrace --no-daemon; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 4 ]; then
+              exit 1
+            fi
+            echo "Build attempt failed; retrying dependency resolution in 25 seconds..."
+            sleep 25
+          done
 
       - name: Create LabyMod production release jar
         working-directory: /tmp/NightWolfAutoFish-LabyMod4-1.21x
-        run: gradle createReleaseJar --full-stacktrace --no-daemon
+        shell: bash
+        run: |
+          set -o pipefail
+          for attempt in 1 2 3; do
+            echo "=== createReleaseJar attempt $attempt/3 ==="
+            if gradle createReleaseJar --full-stacktrace --no-daemon; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            sleep 20
+          done
 
       - name: Show artifacts
         working-directory: /tmp/NightWolfAutoFish-LabyMod4-1.21x
