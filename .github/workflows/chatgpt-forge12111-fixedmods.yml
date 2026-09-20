@@ -1,0 +1,82 @@
+name: NightWolf Forge 1.21.11 fixed mods
+
+on:
+  push:
+    branches:
+      - chatgpt-forge12111-fixedmods
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore source
+        shell: bash
+        run: |
+          base64 -d .chatgpt-forge12111/source.b64 > /tmp/NightWolf-Forge12111-FixedMods.tar.gz
+          echo "8325f8616e0334f6f94ac329bc2b5cbd560f95c5eab28fa952a68a8601e29d8f  /tmp/NightWolf-Forge12111-FixedMods.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/NightWolf-Forge12111-FixedMods.tar.gz -C /tmp
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: corretto
+          java-version: '21'
+
+      - name: Set up Gradle 9.5.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.1'
+          cache-read-only: false
+
+      - name: Build AutoFish and SecondChat
+        shell: bash
+        working-directory: /tmp/NightWolf-Forge12111-FixedMods
+        run: |
+          set -o pipefail
+          for attempt in 1 2 3; do
+            echo "=== ForgeGradle attempt $attempt/3 ==="
+            if gradle :autofish:clean :autofish:build :secondchat:clean :secondchat:build --no-daemon --stacktrace; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            echo "Retrying dependency resolution..."
+            sleep 25
+          done
+
+      - name: Collect and verify jars
+        shell: bash
+        working-directory: /tmp/NightWolf-Forge12111-FixedMods
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/release
+          AF=$(find autofish/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n 1)
+          SC=$(find secondchat/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n 1)
+          test -n "$AF"
+          test -n "$SC"
+          cp "$AF" /tmp/release/NightWolf-AutoFish-LabyMod4-Forge-1.21.11-v2.1.0-Recoded-by-NightWolfLG-NightWolfGG.jar
+          cp "$SC" /tmp/release/MagicWolf-GG-SecondChat-LabyMod4-Forge-1.21.11-v2.1.0-Recoded-by-NightWolfLG-NightWolfGG.jar
+
+          for jar in /tmp/release/*.jar; do
+            echo "==== $jar ===="
+            unzip -t "$jar" | tail -n 2
+            echo "--- mods.toml ---"
+            unzip -p "$jar" META-INF/mods.toml
+            echo
+            jar tf "$jar" | grep -E 'AutoFishMod.class|SecondChatMod.class|META-INF/mods.toml'
+            sha256sum "$jar"
+          done
+
+      - name: Upload finished Forge mods
+        uses: actions/upload-artifact@v4
+        with:
+          name: NightWolf-LabyMod4-Forge-1.21.11-AutoFish-SecondChat
+          path: /tmp/release/*.jar
+          if-no-files-found: error
