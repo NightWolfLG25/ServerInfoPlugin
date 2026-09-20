@@ -1,0 +1,54 @@
+name: NightWolf AutoFish temporary build
+
+on:
+  push:
+    branches:
+      - chatgpt-autofish-build
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct source archive
+        shell: bash
+        run: |
+          cat .chatgpt-autofish/autofish.part1               .chatgpt-autofish/autofish.part2               .chatgpt-autofish/autofish.part3               .chatgpt-autofish/autofish.part4               .chatgpt-autofish/autofish.part5 > /tmp/autofish.b64
+          base64 -d /tmp/autofish.b64 > /tmp/autofish-ci.tar.gz
+          echo "2a17d6f48f078ee965e35d533f2d91bf6bc4fddfd5004c05751bf5fd1376c8b4  /tmp/autofish-ci.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/autofish-ci.tar.gz -C /tmp
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: corretto
+          java-version: '25'
+
+      - name: Set up Gradle 9.7.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.7.1'
+
+      - name: Build all configured 1.21.x versions
+        working-directory: /tmp/NightWolfAutoFish-LabyMod4-1.21x
+        run: gradle build --full-stacktrace --no-daemon
+
+      - name: Create LabyMod production release jar
+        working-directory: /tmp/NightWolfAutoFish-LabyMod4-1.21x
+        run: gradle createReleaseJar --full-stacktrace --no-daemon
+
+      - name: Show artifacts
+        working-directory: /tmp/NightWolfAutoFish-LabyMod4-1.21x
+        run: find build/libs -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
+
+      - name: Upload release jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: NightWolfAutoFish-LabyMod4-1.21x-Recoded-by-NightWolfLG-NightWolfGG
+          path: /tmp/NightWolfAutoFish-LabyMod4-1.21x/build/libs/*-release.jar
+          if-no-files-found: error
