@@ -46,12 +46,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Reconstruct source tree
+      - name: Prepare source tree
         shell: bash
         run: |
-          base64 -d .chatgpt-secondchat/source.tar.gz.b64 > /tmp/secondchat-src.tar.gz
-          tar -tzf /tmp/secondchat-src.tar.gz >/dev/null
-          tar -xzf /tmp/secondchat-src.tar.gz -C /tmp
+          set -euo pipefail
+          test -f .chatgpt-secondchat/source/java/de/magicwolf/ggchat/MagicWolfGGChatOverlay.java
+          test -f .chatgpt-secondchat/source/resources/META-INF/mods.toml
 
       - name: Set up Java 21
         uses: actions/setup-java@v5
@@ -75,7 +75,9 @@ jobs:
           set -euo pipefail
           rm -rf /tmp/mdk/src/main
           mkdir -p /tmp/mdk/src
-          cp -a /tmp/MagicWolf-GG-SecondChat-Forge-1.21x/template/src/main /tmp/mdk/src/
+          mkdir -p /tmp/mdk/src/main
+          cp -a .chatgpt-secondchat/source/java /tmp/mdk/src/main/
+          cp -a .chatgpt-secondchat/source/resources /tmp/mdk/src/main/
           python3 - <<'PY'
           from pathlib import Path
           import re

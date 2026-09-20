@@ -1,0 +1,30 @@
+modLoader="javafml"
+loaderVersion="[__LOADER_MAJOR__,)"
+license="All Rights Reserved"
+clientSideOnly=true
+
+[[mods]]
+modId="magicwolf_gg_chat_overlay"
+version="2.0.1-forge-__MC_VERSION__"
+displayName="MagicWolf GG Second Chat"
+authors="NightWolfLG"
+description='''
+Zweites anpassbares Chatfenster fuer GrieferGames: MSG/Privatnachrichten, /p chat/PChat/Plot-Chat und Geldbewegungen.
+Breite, Hoehe, Position, Deckkraft, Filter und Anzeige sind ueber den Forge-Mods-Config-Button einstellbar.
+Forge __MC_VERSION__ - coded by NightWolfLG.
+'''
+displayTest="NONE"
+
+[[dependencies.magicwolf_gg_chat_overlay]]
+modId="forge"
+mandatory=true
+versionRange="[__FORGE_VERSION__,)"
+ordering="NONE"
+side="CLIENT"
+
+[[dependencies.magicwolf_gg_chat_overlay]]
+modId="minecraft"
+mandatory=true
+versionRange="[__MC_VERSION__]"
+ordering="NONE"
+side="CLIENT"
