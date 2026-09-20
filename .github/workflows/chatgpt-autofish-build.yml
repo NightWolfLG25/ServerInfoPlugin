@@ -23,6 +23,61 @@ jobs:
           echo "2a17d6f48f078ee965e35d533f2d91bf6bc4fddfd5004c05751bf5fd1376c8b4  /tmp/autofish-ci.tar.gz" | sha256sum -c -
           tar -xzf /tmp/autofish-ci.tar.gz -C /tmp
 
+      - name: Apply LabyMod mixin bridge fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path('/tmp/NightWolfAutoFish-LabyMod4-1.21x')
+          bridge=root/'core/src/main/java/gg/nightwolf/autofish/core/bridge/FishingHookBridge.java'
+          bridge.parent.mkdir(parents=True, exist_ok=True)
+          bridge.write_text("""package gg.nightwolf.autofish.core.bridge;
+
+          public interface FishingHookBridge {
+            boolean nightwolf$isBiting();
+          }
+          """)
+          for vdir in (root/'game-runner/src').glob('v1_21*'):
+              pkg=vdir.name
+              mix=vdir/'java'/f'gg/nightwolf/autofish/{pkg}/mixins/FishingHookAccessor.java'
+              mix.write_text(f"""package gg.nightwolf.autofish.{pkg}.mixins;
+
+          import gg.nightwolf.autofish.core.bridge.FishingHookBridge;
+          import net.minecraft.world.entity.projectile.FishingHook;
+          import org.spongepowered.asm.mixin.Mixin;
+          import org.spongepowered.asm.mixin.Shadow;
+
+          @Mixin(FishingHook.class)
+          public abstract class FishingHookAccessor implements FishingHookBridge {{
+
+            @Shadow
+            private boolean biting;
+
+            @Override
+            public boolean nightwolf$isBiting() {{
+              return this.biting;
+            }}
+          }}
+          """)
+              pf=vdir/'java'/f'gg/nightwolf/autofish/{pkg}/mixins/PlayerFishingAccessor.java'
+              if pf.exists():
+                  pf.unlink()
+              rt=vdir/'java'/f'gg/nightwolf/autofish/{pkg}/autofish/AutoFishRuntime.java'
+              s=rt.read_text()
+              s=s.replace(f'import gg.nightwolf.autofish.{pkg}.mixins.FishingHookAccessor;\n','')
+              s=s.replace(f'import gg.nightwolf.autofish.{pkg}.mixins.PlayerFishingAccessor;\n','')
+              if 'import gg.nightwolf.autofish.core.bridge.FishingHookBridge;' not in s:
+                  s=s.replace('import gg.nightwolf.autofish.core.NightWolfAutoFishConfiguration;\n',
+                              'import gg.nightwolf.autofish.core.NightWolfAutoFishConfiguration;\nimport gg.nightwolf.autofish.core.bridge.FishingHookBridge;\n')
+              s=s.replace('FishingHook hook = ((PlayerFishingAccessor) (Object) player).nightwolf$getFishingHook();',
+                          'FishingHook hook = player.fishing;')
+              s=s.replace('hook = ((PlayerFishingAccessor) (Object) player).nightwolf$getFishingHook();',
+                          'hook = player.fishing;')
+              s=s.replace('boolean synchronizedBite = ((FishingHookAccessor) (Object) hook).nightwolf$isBiting();',
+                          'boolean synchronizedBite = ((FishingHookBridge) (Object) hook).nightwolf$isBiting();')
+              rt.write_text(s)
+          PY
+
       - name: Set up JDK 25
         uses: actions/setup-java@v5
         with:
