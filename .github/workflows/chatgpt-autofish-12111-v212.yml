@@ -1,0 +1,101 @@
+name: NightWolf AutoFish Forge 1.21.11 v2.1.2 reliability fix
+
+on:
+  push:
+    branches:
+      - chatgpt-autofish-12111-v212-reliability
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore proven Forge 1.21.11 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 -d .chatgpt-forge12111/source.b64 > /tmp/NightWolf-Forge12111-FixedMods.tar.gz
+          echo "8325f8616e0334f6f94ac329bc2b5cbd560f95c5eab28fa952a68a8601e29d8f  /tmp/NightWolf-Forge12111-FixedMods.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/NightWolf-Forge12111-FixedMods.tar.gz -C /tmp
+
+      - name: Apply AutoFish v2.1.2 reliability fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=/tmp/NightWolf-Forge12111-FixedMods
+          MOD="$ROOT/autofish/src/main/java/de/nightwolf/autofish/AutoFishMod.java"
+          SCREEN="$ROOT/autofish/src/main/java/de/nightwolf/autofish/AutoFishConfigScreen.java"
+
+          base64 -d .chatgpt-autofish-v212/AutoFishMod.java.b64 > "$MOD"
+          echo "54f937491465043f2d3d6c5d65c0b233ad6c59803675c241c40de16cb878253e  $MOD" | sha256sum -c -
+
+          # Keep the 1.21.11 config-screen double-blur crash fix.
+          sed -i '/this\.renderBackground(g,mouseX,mouseY,partialTick);/d' "$SCREEN"
+          sed -i '/this\.renderBackground(g, mouseX, mouseY, partialTick);/d' "$SCREEN"
+
+          sed -i 's/mod_version=2.1.0/mod_version=2.1.2/' "$ROOT/gradle.properties"
+          sed -i 's/version="2.1.0-forge-1.21.11"/version="2.1.2-forge-1.21.11"/' "$ROOT/autofish/src/main/resources/META-INF/mods.toml"
+
+          cat > "$ROOT/autofish/src/main/resources/pack.mcmeta" <<'EOF'
+          {
+            "pack": {
+              "pack_format": 34,
+              "description": "NightWolf AutoFish resources for Minecraft 1.21.11"
+            }
+          }
+          EOF
+
+          # Static sanity checks for the exact regressions.
+          grep -q 'getFluidState(hook.blockPosition()).is(FluidTags.WATER)' "$MOD"
+          grep -q 'currentVelocityY <= -0.16D' "$MOD"
+          grep -q 'now - reelStartedAt >= 2600L' "$MOD"
+          grep -q 'reelRetries < 2' "$MOD"
+          ! grep -q 'hook.isInWater()' "$MOD"
+          ! grep -q 'this.renderBackground' "$SCREEN"
+          grep -q '2.1.2' "$MOD"
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: corretto
+          java-version: '21'
+
+      - name: Set up Gradle 9.5.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.1'
+
+      - name: Build AutoFish
+        shell: bash
+        working-directory: /tmp/NightWolf-Forge12111-FixedMods
+        run: |
+          gradle :autofish:clean :autofish:build --no-daemon --stacktrace
+
+      - name: Verify release jar
+        shell: bash
+        working-directory: /tmp/NightWolf-Forge12111-FixedMods
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/release
+          AF=$(find autofish/build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*sources*' | head -n 1)
+          OUT=/tmp/release/NightWolf-AutoFish-LabyMod4-Forge-1.21.11-v2.1.2-BITE-RELIABILITY-FIX.jar
+          cp "$AF" "$OUT"
+
+          unzip -t "$OUT" | tail -n 2
+          unzip -p "$OUT" META-INF/mods.toml | grep -E 'modId=|version=|1.21.11'
+          jar tf "$OUT" | grep -E 'AutoFishMod.class|AutoFishConfigScreen.class|META-INF/mods.toml|pack.mcmeta'
+          javap -classpath "$OUT" -c -p de.nightwolf.autofish.AutoFishMod > /tmp/AutoFishMod.javap.txt
+          grep -E 'reel retry|not acknowledged|FluidTags|fishing_bobber.splash' /tmp/AutoFishMod.javap.txt || true
+          sha256sum "$OUT"
+
+      - name: Upload fixed AutoFish
+        uses: actions/upload-artifact@v4
+        with:
+          name: NightWolf-AutoFish-LabyMod4-Forge-1.21.11-v2.1.2-BITE-RELIABILITY-FIX
+          path: /tmp/release/*.jar
+          if-no-files-found: error
